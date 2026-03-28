@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cwelownia</title>
@@ -130,6 +129,7 @@
   .ico-yt{background:rgba(255,0,0,.15);color:#ff4444;}
   .ico-nu{background:rgba(255,165,0,.15);color:#ffa500;}
   .ico-tw{background:rgba(100,65,165,.2);color:#9146ff;}
+  .ico-ie{background:rgba(255,50,50,.15);color:#ff3232;}
   .pitem-info{flex:1;min-width:0;}
   .pitem-title{font-size:0.73rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;}
   .pitem-url{font-family:'Space Mono',monospace;font-size:0.56rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -190,7 +190,7 @@
       <div class="card-desc">Możesz oglądać i dodawać filmy do playlisty.</div>
       <div class="fgroup">
         <div class="flabel">Twoja nazwa</div>
-        <input class="finput" id="guest-name" type="text" placeholder="wpisz nick" maxlength="24" />
+        <input class="finput" id="guest-name" type="text" placeholder="nick" maxlength="24" />
       </div>
       <div class="errmsg" id="guest-err"></div>
       <button class="btn" id="guest-btn" onclick="loginGuest()">Wejdź jako Gość →</button>
@@ -273,6 +273,7 @@
           <span class="stag">YouTube</span>
           <span class="stag">i.nuuls</span>
           <span class="stag">Twitch</span>
+          <span class="stag">DaddyLive</span>
         </div>
       </div>
 
@@ -364,6 +365,7 @@ function detectPlatform(url) {
     if (h.includes('youtube.com') || h.includes('youtu.be')) return 'youtube';
     if (h.includes('i.nuuls.com') || h.includes('nuuls.com')) return 'nuuls';
     if (h.includes('twitch.tv')) return 'twitch';
+    if (h.includes('dlstreams.top') || h.includes('daddylive') || h.includes('daddyliveus')) return 'iframe-embed';
 
   } catch(e) {}
   return null;
@@ -379,6 +381,7 @@ function getTitle(url, platform) {
   try {
     if (platform === 'youtube') { const id = getYtId(url); return id ? 'YouTube · '+id : 'YouTube'; }
     if (platform === 'twitch') { try { const ch = new URL(url).pathname.split('/').filter(Boolean)[0]; return '🔴 ' + ch; } catch(e) {} }
+    if (platform === 'iframe-embed') { try { return '📡 ' + new URL(url).hostname.replace('www.',''); } catch(e) { return '📡 Stream'; } }
     return new URL(url).pathname.split('/').filter(Boolean).pop() || url;
   } catch(e) { return url; }
 }
@@ -558,10 +561,13 @@ function setupControls() {
 // ── ADD URL ──
 window.addUrl = async function() {
   const inp = document.getElementById('url-inp');
-  const url = inp.value.trim();
+  let url = inp.value.trim();
   if (!url) return;
+  // If user pasted full <iframe ...> tag, extract src
+  const srcMatch = url.match(/src=["']([^"']+)["']/);
+  if (srcMatch) url = srcMatch[1];
   const platform = detectPlatform(url);
-  if (!platform) { toast('Tylko YouTube, i.nuuls i Twitch!', 'err'); return; }
+  if (!platform) { toast('Nieobsługiwany link!', 'err'); return; }
   const item = { url, platform, title: getTitle(url, platform) };
   const newPl = [...playlist, item];
   const newIdx = playlist.length === 0 ? 0 : currentIndex;
@@ -582,8 +588,8 @@ function renderPlaylist() {
   playlist.forEach((item, i) => {
     const div = document.createElement('div');
     div.className = 'pitem' + (i === currentIndex ? ' active' : '');
-    const icoMap = { youtube:'ico-yt', nuuls:'ico-nu', twitch:'ico-tw' };
-    const lblMap = { youtube:'YT', nuuls:'NU', twitch:'TW' };
+    const icoMap = { youtube:'ico-yt', nuuls:'ico-nu', twitch:'ico-tw', 'iframe-embed':'ico-ie' };
+    const lblMap = { youtube:'YT', nuuls:'NU', twitch:'TW', 'iframe-embed':'📡' };
     const ico = icoMap[item.platform] || 'ico-nu';
     const lbl = lblMap[item.platform] || '??';
     div.innerHTML = `
@@ -712,6 +718,9 @@ function clearPlayer() {
 
   const stIframe = document.getElementById('st-iframe');
   if (stIframe) stIframe.remove();
+  const embedIframe = document.getElementById('embed-iframe');
+  if (embedIframe) embedIframe.remove();
+
   if (ytPlayer && typeof ytPlayer.destroy === 'function') {
     try { ytPlayer.destroy(); } catch(e) {}
     ytPlayer = null;
@@ -776,6 +785,19 @@ function loadPlayer(item) {
     tcf.src = `https://www.twitch.tv/embed/${channel}/chat?parent=${parent}&darkpopout`;
     tw.classList.add('show');
     // Hide controls overlay - no sync for live
+    document.getElementById('ctrl').classList.remove('show');
+    return;
+  }
+
+  if (item.platform === 'iframe-embed') {
+    currentPlatform = 'iframe-embed';
+    const iframeEl = document.createElement('iframe');
+    iframeEl.id = 'embed-iframe';
+    iframeEl.src = item.url;
+    iframeEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:none;';
+    iframeEl.allow = 'autoplay; fullscreen';
+    iframeEl.allowFullscreen = true;
+    document.getElementById('player-wrap').appendChild(iframeEl);
     document.getElementById('ctrl').classList.remove('show');
     return;
   }
