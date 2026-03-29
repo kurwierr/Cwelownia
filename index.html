@@ -130,6 +130,7 @@
   .ico-yt{background:rgba(255,0,0,.15);color:#ff4444;}
   .ico-nu{background:rgba(255,165,0,.15);color:#ffa500;}
   .ico-tw{background:rgba(100,65,165,.2);color:#9146ff;}
+  .ico-kick{background:rgba(83,252,27,.12);color:#53fc1b;}
   .pitem-info{flex:1;min-width:0;}
   .pitem-title{font-size:0.73rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;}
   .pitem-url{font-family:'Space Mono',monospace;font-size:0.56rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -149,6 +150,10 @@
   .toast.ok{border-color:var(--accent);color:var(--accent);}
   .toast.info{border-color:var(--accent2);color:var(--accent2);}
   .toast.gone{opacity:0;transform:translateX(-50%) translateY(10px);}
+
+  /* Click blocker for guests on YT iframe */
+  #click-blocker{position:absolute;inset:0;z-index:8;display:none;}
+  #click-blocker.show{display:block;}
 
   /* Pause overlay */
   #pause-overlay{position:absolute;inset:0;background:rgba(0,0,0,0.55);display:none;align-items:center;justify-content:center;z-index:9;flex-direction:column;gap:10px;pointer-events:none;}
@@ -246,6 +251,7 @@
         </div>
         <div id="yt-player"></div>
         <div id="native-wrap"><video id="native-vid" playsinline></video></div>
+        <div id="click-blocker"></div>
         <div id="pause-overlay">
           <div class="po-icon">⏸</div>
           <div class="po-txt">PAUZA</div>
@@ -308,6 +314,7 @@
           <span class="stag">YouTube</span>
           <span class="stag">i.nuuls</span>
           <span class="stag">Twitch</span>
+          <span class="stag">Kick</span>
         </div>
       </div>
 
@@ -412,6 +419,7 @@ function detectPlatform(url) {
     if (h.includes('youtube.com') || h.includes('youtu.be')) return 'youtube';
     if (h.includes('i.nuuls.com') || h.includes('nuuls.com')) return 'nuuls';
     if (h.includes('twitch.tv')) return 'twitch';
+    if (h.includes('kick.com')) return 'kick';
 
   } catch(e) {}
   return null;
@@ -427,6 +435,7 @@ function getTitle(url, platform) {
   try {
     if (platform === 'youtube') { const id = getYtId(url); return id ? 'YouTube · '+id : 'YouTube'; }
     if (platform === 'twitch') { try { const ch = new URL(url).pathname.split('/').filter(Boolean)[0]; return '🔴 ' + ch; } catch(e) {} }
+    if (platform === 'kick') { try { const ch = new URL(url).pathname.split('/').filter(Boolean)[0]; return '🟢 ' + ch; } catch(e) {} }
     return new URL(url).pathname.split('/').filter(Boolean).pop() || url;
   } catch(e) { return url; }
 }
@@ -473,6 +482,7 @@ window.loginGuest = function() {
   if (!name) { err.textContent = 'Podaj nazwę użytkownika'; return; }
   if (name.toLowerCase() === HOST_NAME.toLowerCase()) { err.textContent = 'Ta nazwa jest zarezerwowana'; return; }
   err.textContent = '';
+  localStorage.setItem('cwel_nick', name);
   isHost = false; myName = name;
   myUid = 'guest_' + getUid();
   enterRoom();
@@ -659,8 +669,8 @@ function renderPlaylist() {
   playlist.forEach((item, i) => {
     const div = document.createElement('div');
     div.className = 'pitem' + (i === currentIndex ? ' active' : '');
-    const icoMap = { youtube:'ico-yt', nuuls:'ico-nu', twitch:'ico-tw' };
-    const lblMap = { youtube:'YT', nuuls:'NU', twitch:'TW' };
+    const icoMap = { youtube:'ico-yt', nuuls:'ico-nu', twitch:'ico-tw', kick:'ico-kick' };
+    const lblMap = { youtube:'YT', nuuls:'NU', twitch:'TW', kick:'KK' };
     const ico = icoMap[item.platform] || 'ico-nu';
     const lbl = lblMap[item.platform] || '??';
     div.innerHTML = `
@@ -796,6 +806,7 @@ function clearPlayer() {
   document.getElementById('ctrl').classList.remove('show');
   document.getElementById('ph').style.display = 'flex';
   document.getElementById('pause-overlay').classList.remove('show');
+  document.getElementById('click-blocker').classList.remove('show');
 
   const stIframe = document.getElementById('st-iframe');
   if (stIframe) stIframe.remove();
@@ -828,7 +839,13 @@ function loadPlayer(item) {
         videoId: vid,
         playerVars: { autoplay:1, rel:0, modestbranding:1, controls:0, disablekb:1, iv_load_policy:3 },
         events: {
-          onReady: e => { e.target.setVolume(currentVolume); e.target.playVideo(); startTimers(); },
+          onReady: e => {
+              e.target.setVolume(currentVolume);
+              e.target.playVideo();
+              startTimers();
+              // Block guest clicks on YT iframe
+              if (!isHost) document.getElementById('click-blocker').classList.add('show');
+            },
           onStateChange: e => {
             if (ignoreState) return;
             if (isHost) {
@@ -836,9 +853,8 @@ function loadPlayer(item) {
               const pa = e.data === window.YT.PlayerState.PAUSED;
               if (pl || pa) { try { pushState(pl, ytPlayer.getCurrentTime()||0); } catch(err){} }
               // Autoplay next
-              if (e.data === window.YT.PlayerState.ENDED && playlist.length > 1 && currentIndex < playlist.length - 1) {
-                removeWatchedItem();
-                setIdx(0);
+              if (e.data === window.YT.PlayerState.ENDED && currentIndex < playlist.length - 1) {
+                setIdx(currentIndex + 1);
               }
             }
           }
@@ -869,6 +885,21 @@ function loadPlayer(item) {
   }
 
 
+  if (item.platform === 'kick') {
+    currentPlatform = 'kick';
+    let channel = '';
+    try { channel = new URL(item.url).pathname.split('/').filter(Boolean)[0]; } catch(e) {}
+    if (!channel) { toast('Błąd URL Kick','err'); return; }
+    const tw = document.getElementById('twitch-wrap');
+    const tpf = document.getElementById('twitch-player-frame');
+    const tcf = document.getElementById('twitch-chat-frame');
+    tpf.src = `https://player.kick.com/${channel}?autoplay=true`;
+    tcf.src = `https://chat.kick.cx/embed/${channel}`;
+    tw.classList.add('show');
+    document.getElementById('ctrl').classList.remove('show');
+    return;
+  }
+
   if (item.platform === 'nuuls') {
     currentPlatform = 'native';
     const nw = document.getElementById('native-wrap');
@@ -880,9 +911,8 @@ function loadPlayer(item) {
     v.addEventListener('pause', () => { if (!ignoreState && isHost) pushState(false, v.currentTime); });
     v.addEventListener('seeked', () => { if (!ignoreState && isHost) pushState(!v.paused, v.currentTime); });
     v.addEventListener('ended', () => {
-      if (isHost && playlist.length > 1 && currentIndex < playlist.length - 1) {
-        removeWatchedItem();
-        setIdx(0);
+      if (isHost && currentIndex < playlist.length - 1) {
+        setIdx(currentIndex + 1);
       }
     });
     v.play().catch(()=>{});
@@ -1101,7 +1131,18 @@ window.clearPlaylist = async function() {
 // ── KEYBOARD ──
 document.getElementById('url-inp').addEventListener('keydown', e => { if(e.key==='Enter') window.addUrl(); });
 document.getElementById('chat-inp').addEventListener('keydown', e => { if(e.key==='Enter') window.sendChat(); });
+
+// Blokada spacji dla gości
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !isHost && currentPlatform && document.activeElement.tagName !== 'INPUT') {
+    e.preventDefault();
+  }
+});
 document.getElementById('host-pass').addEventListener('keydown', e => { if(e.key==='Enter') window.loginHost(); });
+
+// Auto-fill saved nick
+const savedNick = localStorage.getItem('cwel_nick');
+if (savedNick) document.getElementById('guest-name').value = savedNick;
 document.getElementById('guest-name').addEventListener('keydown', e => { if(e.key==='Enter') window.loginGuest(); });
 
 </script>
