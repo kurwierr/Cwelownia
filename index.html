@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cwelownia</title>
@@ -150,6 +149,33 @@
   .toast.info{border-color:var(--accent2);color:var(--accent2);}
   .toast.gone{opacity:0;transform:translateX(-50%) translateY(10px);}
 
+  /* Pause overlay */
+  #pause-overlay{position:absolute;inset:0;background:rgba(0,0,0,0.55);display:none;align-items:center;justify-content:center;z-index:9;flex-direction:column;gap:10px;pointer-events:none;}
+  #pause-overlay.show{display:flex;}
+  #pause-overlay .po-icon{font-size:4rem;opacity:0.9;}
+  #pause-overlay .po-txt{font-family:'Space Mono',monospace;font-size:0.8rem;color:rgba(255,255,255,0.7);letter-spacing:0.1em;}
+
+  /* Lock indicator */
+  #lock-indicator{font-family:'Space Mono',monospace;font-size:0.58rem;color:var(--muted);padding:2px 7px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;display:none;}
+  #lock-indicator.show{display:inline-block;}
+
+  /* Chat */
+  .chat-box{display:flex;flex-direction:column;border-top:1px solid var(--border);flex-shrink:0;height:240px;}
+  .chat-msgs{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:5px;}
+  .chat-msgs::-webkit-scrollbar{width:3px;}
+  .chat-msgs::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+  .chat-msg{font-size:0.72rem;line-height:1.4;word-break:break-word;}
+  .chat-msg .cn{font-family:'Space Mono',monospace;font-size:0.65rem;font-weight:700;color:var(--accent2);margin-right:5px;}
+  .chat-msg .cn.host-cn{color:var(--accent);}
+  .chat-msg .ct{color:var(--text);opacity:0.9;}
+  .chat-msg.system{font-family:'Space Mono',monospace;font-size:0.62rem;color:var(--muted);font-style:italic;}
+  .chat-input-row{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--border);flex-shrink:0;}
+  .chat-inp{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-family:'Space Mono',monospace;font-size:0.7rem;outline:none;transition:border-color 0.2s;min-width:0;}
+  .chat-inp:focus{border-color:var(--accent);}
+  .chat-inp::placeholder{color:var(--muted);}
+  .chat-send{background:var(--accent);color:#000;border:none;border-radius:6px;padding:7px 12px;font-weight:800;font-family:'Syne',sans-serif;font-size:0.78rem;cursor:pointer;flex-shrink:0;transition:opacity 0.15s;}
+  .chat-send:hover{opacity:0.85;}
+
   /* Twitch mode: split player + chat */
   #twitch-wrap{display:none;position:absolute;inset:0;flex-direction:row;}
   #twitch-wrap.show{display:flex;}
@@ -190,7 +216,7 @@
       <div class="card-desc">Możesz oglądać i dodawać filmy do playlisty.</div>
       <div class="fgroup">
         <div class="flabel">Twoja nazwa</div>
-        <input class="finput" id="guest-name" type="text" placeholder="wpisz nick" maxlength="24" />
+        <input class="finput" id="guest-name" type="text" placeholder="nick" maxlength="24" />
       </div>
       <div class="errmsg" id="guest-err"></div>
       <button class="btn" id="guest-btn" onclick="loginGuest()">Wejdź jako Gość →</button>
@@ -219,6 +245,10 @@
         </div>
         <div id="yt-player"></div>
         <div id="native-wrap"><video id="native-vid" playsinline></video></div>
+        <div id="pause-overlay">
+          <div class="po-icon">⏸</div>
+          <div class="po-txt">PAUZA</div>
+        </div>
         <div id="twitch-wrap">
           <iframe id="twitch-player-frame" allowfullscreen allow="autoplay; fullscreen"></iframe>
           <iframe id="twitch-chat-frame"></iframe>
@@ -264,7 +294,11 @@
       </div>
 
       <div class="add-box">
-        <div class="slbl">// Dodaj link</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;">
+          <div class="slbl" style="margin:0">// Dodaj link</div>
+          <span id="lock-indicator">🔒 zablokowane</span>
+          <button id="lock-btn" onclick="toggleLock()" style="display:none;background:transparent;border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-family:'Space Mono',monospace;font-size:0.58rem;color:var(--muted);cursor:pointer;">🔓 odblokuj</button>
+        </div>
         <div class="add-row">
           <input type="text" class="urlinput" id="url-inp" placeholder="link" />
           <button class="addbtn" onclick="addUrl()">+</button>
@@ -285,6 +319,15 @@
           </div>
         </div>
         <div id="playlist"></div>
+      </div>
+
+      <div class="chat-box">
+        <div class="slbl" style="padding:10px 12px 4px;margin:0">// Czat</div>
+        <div class="chat-msgs" id="chat-msgs"></div>
+        <div class="chat-input-row">
+          <input type="text" class="chat-inp" id="chat-inp" placeholder="wiadomość..." maxlength="200"/>
+          <button class="chat-send" onclick="sendChat()">→</button>
+        </div>
       </div>
     </div>
   </div>
@@ -310,7 +353,6 @@ const app = initializeApp({
 const db = getDatabase(app);
 
 // ── Constants ──
-const HOST_PASSWORD = 'cwel';
 const HOST_NAME = 'MelaPustelnik';
 const ROOM_ID = 'main';
 
@@ -322,6 +364,8 @@ let playlist = [];
 let currentIndex = -1;
 let unsubRoom = null;
 let unsubUsers = null;
+let unsubChat = null;
+let addingLocked = false;
 
 // Player
 let currentVolume = 100; // track volume across players
@@ -389,6 +433,8 @@ function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 window.onYouTubeIframeAPIReady = () => {};
 
 // ── LOGIN ──
+const WORKER_URL = 'https://cwelownia-auth.mozepamietam.workers.dev';
+
 window.loginHost = async function() {
   const pass = document.getElementById('host-pass').value;
   const err = document.getElementById('host-err');
@@ -396,16 +442,25 @@ window.loginHost = async function() {
   if (!pass) { err.textContent = 'Podaj hasło'; return; }
   err.textContent = '';
   btn.disabled = true; btn.textContent = 'Sprawdzam...';
-  const hash = await sha256(pass);
-  const correctHash = await sha256(HOST_PASSWORD);
-  if (hash !== correctHash) {
-    err.textContent = 'Złe hasło';
+  try {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pass, role: 'host' })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      err.textContent = 'Złe hasło';
+      btn.disabled = false; btn.textContent = 'Wejdź jako Host →';
+      return;
+    }
+    isHost = true; myName = HOST_NAME;
+    myUid = 'host_' + getUid();
+    enterRoom();
+  } catch(e) {
+    err.textContent = 'Błąd połączenia z serwerem';
     btn.disabled = false; btn.textContent = 'Wejdź jako Host →';
-    return;
   }
-  isHost = true; myName = HOST_NAME;
-  myUid = 'host_' + getUid();
-  enterRoom();
 };
 
 window.loginGuest = function() {
@@ -432,6 +487,8 @@ function enterRoom() {
   setupControls();
   const clearBtn = document.getElementById('clear-btn');
   if (clearBtn) clearBtn.style.display = isHost ? '' : 'none';
+  const lockBtn = document.getElementById('lock-btn');
+  if (lockBtn) lockBtn.style.display = isHost ? '' : 'none';
   clearPlayer();
 
   // Register presence
@@ -443,7 +500,7 @@ function enterRoom() {
     if (!snap.exists()) {
       // Initialize room if empty (host)
       if (isHost) {
-        set(ref(db, 'room'), { playlist: [], currentIndex: -1, playerState: null });
+        set(ref(db, 'room'), { playlist: [], currentIndex: -1, playerState: null, addingLocked: false });
       }
       return;
     }
@@ -451,6 +508,11 @@ function enterRoom() {
     const newPlaylist = data.playlist ? (Array.isArray(data.playlist) ? data.playlist : Object.values(data.playlist)) : [];
     const newIndex = typeof data.currentIndex === 'number' ? data.currentIndex : -1;
     const newState = data.playerState || null;
+    const newLocked = data.addingLocked === true;
+    if (newLocked !== addingLocked) {
+      addingLocked = newLocked;
+      updateLockUI();
+    }
 
     const idxChanged = newIndex !== currentIndex;
     const plChanged = JSON.stringify(newPlaylist) !== JSON.stringify(playlist);
@@ -482,6 +544,13 @@ function enterRoom() {
         applyState(newState, forceSync);
       }
     }
+  });
+
+  // Subscribe to chat
+  if (unsubChat) unsubChat();
+  unsubChat = onValue(ref(db, 'chat'), snap => {
+    const msgs = snap.val() || {};
+    renderChat(msgs);
   });
 
   // Subscribe to users
@@ -528,6 +597,7 @@ function renderUsers(users) {
 window.leaveRoom = function() {
   if (unsubRoom) { unsubRoom(); unsubRoom = null; }
   if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+  if (unsubChat) { unsubChat(); unsubChat = null; }
   clearInterval(window._presenceTimer);
   if (myUid) remove(ref(db, 'users/' + myUid));
   stopTimers();
@@ -557,8 +627,9 @@ function setupControls() {
 
 // ── ADD URL ──
 window.addUrl = async function() {
+  if (addingLocked && !isHost) { toast('Dodawanie jest zablokowane przez hosta', 'err'); return; }
   const inp = document.getElementById('url-inp');
-  const url = inp.value.trim();
+  let url = inp.value.trim();
   if (!url) return;
   const platform = detectPlatform(url);
   if (!platform) { toast('Tylko YouTube, i.nuuls i Twitch!', 'err'); return; }
@@ -624,11 +695,19 @@ window.hostNext = function() { if (!isHost || currentIndex >= playlist.length-1)
 window.hostPrev = function() { if (!isHost || currentIndex <= 0) return; setIdx(currentIndex-1); };
 
 // ── FIREBASE PLAYER STATE ──
+function updatePauseOverlay(playing) {
+  const o = document.getElementById('pause-overlay');
+  if (!o) return;
+  if (!playing && currentPlatform && currentPlatform !== 'twitch') o.classList.add('show');
+  else o.classList.remove('show');
+}
+
 async function pushState(playing, time) {
   if (!isHost || !myUid) return;
   clearTimeout(syncDebounce);
   syncDebounce = setTimeout(async () => {
     try {
+      updatePauseOverlay(playing);
       await update(ref(db, 'room/playerState'), {
         playing, time: parseFloat((time||0).toFixed(2)),
         updatedAt: Date.now(), itemIndex: currentIndex
@@ -672,6 +751,7 @@ function applyState(state, force=false) {
 
   flashSync();
   ignoreState = true;
+  updatePauseOverlay(playing);
 
   if (currentPlatform === 'youtube' && ytPlayer && typeof ytPlayer.seekTo === 'function') {
     try {
@@ -709,6 +789,7 @@ function clearPlayer() {
   document.getElementById('native-vid').src = '';
   document.getElementById('ctrl').classList.remove('show');
   document.getElementById('ph').style.display = 'flex';
+  document.getElementById('pause-overlay').classList.remove('show');
 
   const stIframe = document.getElementById('st-iframe');
   if (stIframe) stIframe.remove();
@@ -750,7 +831,8 @@ function loadPlayer(item) {
               if (pl || pa) { try { pushState(pl, ytPlayer.getCurrentTime()||0); } catch(err){} }
               // Autoplay next
               if (e.data === window.YT.PlayerState.ENDED && playlist.length > 1 && currentIndex < playlist.length - 1) {
-                setIdx(currentIndex + 1);
+                removeWatchedItem();
+                setIdx(0);
               }
             }
           }
@@ -780,6 +862,7 @@ function loadPlayer(item) {
     return;
   }
 
+
   if (item.platform === 'nuuls') {
     currentPlatform = 'native';
     const nw = document.getElementById('native-wrap');
@@ -791,7 +874,10 @@ function loadPlayer(item) {
     v.addEventListener('pause', () => { if (!ignoreState && isHost) pushState(false, v.currentTime); });
     v.addEventListener('seeked', () => { if (!ignoreState && isHost) pushState(!v.paused, v.currentTime); });
     v.addEventListener('ended', () => {
-      if (isHost && playlist.length > 1 && currentIndex < playlist.length - 1) setIdx(currentIndex + 1);
+      if (isHost && playlist.length > 1 && currentIndex < playlist.length - 1) {
+        removeWatchedItem();
+        setIdx(0);
+      }
     });
     v.play().catch(()=>{});
     startTimers();
@@ -900,6 +986,92 @@ document.addEventListener('mousemove', e => {
 });
 document.addEventListener('mouseup', () => { dragging = false; });
 
+// ── LOCK ADDING ──
+window.toggleLock = async function() {
+  if (!isHost) return;
+  const newVal = !addingLocked;
+  try {
+    await update(ref(db, 'room'), { addingLocked: newVal });
+    toast(newVal ? '🔒 Dodawanie zablokowane' : '🔓 Dodawanie odblokowane', 'info');
+  } catch(e) { toast('Błąd','err'); }
+};
+
+function updateLockUI() {
+  const lockBtn = document.getElementById('lock-btn');
+  const lockInd = document.getElementById('lock-indicator');
+  const addRow = document.querySelector('.add-row');
+  const supTags = document.querySelector('.sup-tags');
+
+  if (addingLocked) {
+    if (lockInd) lockInd.classList.add('show');
+    if (lockBtn) lockBtn.textContent = '🔓 odblokuj';
+    if (!isHost && addRow) addRow.style.display = 'none';
+    if (!isHost && supTags) supTags.style.display = 'none';
+  } else {
+    if (lockInd) lockInd.classList.remove('show');
+    if (lockBtn) lockBtn.textContent = '🔒 zablokuj';
+    if (addRow) addRow.style.display = '';
+    if (supTags) supTags.style.display = '';
+  }
+}
+
+// ── CHAT ──
+const MAX_CHAT_MSGS = 100;
+
+window.sendChat = async function() {
+  const inp = document.getElementById('chat-inp');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  const msgId = Date.now() + '_' + Math.random().toString(36).substr(2,5);
+  try {
+    await set(ref(db, 'chat/' + msgId), {
+      name: myName,
+      isHost,
+      text,
+      ts: Date.now()
+    });
+    // Prune old messages if over limit
+    pruneChat();
+  } catch(e) { toast('Błąd wysyłania','err'); }
+};
+
+async function pruneChat() {
+  try {
+    const snap = await get(ref(db, 'chat'));
+    if (!snap.exists()) return;
+    const msgs = snap.val();
+    const keys = Object.keys(msgs).sort();
+    if (keys.length > MAX_CHAT_MSGS) {
+      const toDelete = keys.slice(0, keys.length - MAX_CHAT_MSGS);
+      for (const k of toDelete) await remove(ref(db, 'chat/' + k));
+    }
+  } catch(e) {}
+}
+
+function renderChat(msgs) {
+  const el = document.getElementById('chat-msgs');
+  const wasAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 30;
+  el.innerHTML = '';
+  const sorted = Object.values(msgs).sort((a,b) => (a.ts||0)-(b.ts||0));
+  sorted.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'chat-msg';
+    div.innerHTML = `<span class="cn${m.isHost?' host-cn':''}">${esc(m.name)}:</span><span class="ct">${esc(m.text)}</span>`;
+    el.appendChild(div);
+  });
+  if (wasAtBottom) el.scrollTop = el.scrollHeight;
+}
+
+// ── AUTO-REMOVE WATCHED ITEMS ──
+function removeWatchedItem() {
+  // Called when a video ends and there's a next item — remove the just-watched one
+  if (!isHost || currentIndex <= 0) return;
+  const np = [...playlist];
+  np.splice(0, currentIndex); // remove everything before current
+  update(ref(db, 'room'), { playlist: np, currentIndex: 0 }).catch(()=>{});
+}
+
 // ── CLEAR PLAYLIST ──
 window.clearPlaylist = async function() {
   if (!isHost) return;
@@ -912,6 +1084,7 @@ window.clearPlaylist = async function() {
 
 // ── KEYBOARD ──
 document.getElementById('url-inp').addEventListener('keydown', e => { if(e.key==='Enter') window.addUrl(); });
+document.getElementById('chat-inp').addEventListener('keydown', e => { if(e.key==='Enter') window.sendChat(); });
 document.getElementById('host-pass').addEventListener('keydown', e => { if(e.key==='Enter') window.loginHost(); });
 document.getElementById('guest-name').addEventListener('keydown', e => { if(e.key==='Enter') window.loginGuest(); });
 
