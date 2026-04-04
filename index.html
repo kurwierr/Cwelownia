@@ -933,12 +933,8 @@ function loadPlayer(item) {
     iframeEl.allow = 'autoplay; fullscreen; encrypted-media';
     iframeEl.allowFullscreen = true;
     document.getElementById('player-wrap').appendChild(iframeEl);
-    // Show vol+fullscreen for host, nothing for guest on vidking
-    if (isHost) {
-      document.getElementById('ctrl').classList.add('show');
-    } else {
-      document.getElementById('ctrl').classList.remove('show');
-    }
+    // VidKing has its own built-in controls — hide ours for everyone
+    document.getElementById('ctrl').classList.remove('show');
 
     // Host: track time manually via interval and push to Firebase
     if (isHost) {
