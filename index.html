@@ -131,7 +131,6 @@
   .ico-nu{background:rgba(255,165,0,.15);color:#ffa500;}
   .ico-tw{background:rgba(100,65,165,.2);color:#9146ff;}
   .ico-kick{background:rgba(83,252,27,.12);color:#53fc1b;}
-  .ico-dl{background:rgba(255,140,0,.15);color:#ff8c00;}
   .ico-vk{background:rgba(255,180,0,.12);color:#ffb400;}
   .pitem-info{flex:1;min-width:0;}
   .pitem-title{font-size:0.73rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px;}
@@ -317,7 +316,6 @@
           <span class="stag">i.nuuls</span>
           <span class="stag">Twitch</span>
           <span class="stag">Kick</span>
-          <span class="stag">DaddyLive</span>
           <span class="stag">VidKing</span>
         </div>
       </div>
@@ -424,7 +422,6 @@ function detectPlatform(url) {
     if (h.includes('i.nuuls.com') || h.includes('nuuls.com')) return 'nuuls';
     if (h.includes('twitch.tv')) return 'twitch';
     if (h.includes('kick.com')) return 'kick';
-    if (h.includes('dlstreams.top') || h.includes('daddylive')) return 'dlstreams';
     if (h.includes('vidking.net')) return 'vidking';
 
   } catch(e) {}
@@ -442,7 +439,6 @@ function getTitle(url, platform) {
     if (platform === 'youtube') { const id = getYtId(url); return id ? 'YouTube · '+id : 'YouTube'; }
     if (platform === 'twitch') { try { const ch = new URL(url).pathname.split('/').filter(Boolean)[0]; return '🔴 ' + ch; } catch(e) {} }
     if (platform === 'kick') { try { const ch = new URL(url).pathname.split('/').filter(Boolean)[0]; return '🟢 ' + ch; } catch(e) {} }
-    if (platform === 'dlstreams') { try { const m = url.match(/stream-(\d+)/); return '📡 DaddyLive #' + (m ? m[1] : ''); } catch(e) { return '📡 DaddyLive'; } }
     if (platform === 'vidking') { try { const parts = new URL(url).pathname.split('/').filter(Boolean); return '🎬 VidKing · ' + (parts[parts.length-1] || ''); } catch(e) { return '🎬 VidKing'; } }
     return new URL(url).pathname.split('/').filter(Boolean).pop() || url;
   } catch(e) { return url; }
@@ -677,8 +673,8 @@ function renderPlaylist() {
   playlist.forEach((item, i) => {
     const div = document.createElement('div');
     div.className = 'pitem' + (i === currentIndex ? ' active' : '');
-    const icoMap = { youtube:'ico-yt', nuuls:'ico-nu', twitch:'ico-tw', kick:'ico-kick', vidking:'ico-vk', dlstreams:'ico-dl' };
-    const lblMap = { youtube:'YT', nuuls:'NU', twitch:'TW', kick:'KK', vidking:'VK', dlstreams:'📡' };
+    const icoMap = { youtube:'ico-yt', nuuls:'ico-nu', twitch:'ico-tw', kick:'ico-kick', vidking:'ico-vk' };
+    const lblMap = { youtube:'YT', nuuls:'NU', twitch:'TW', kick:'KK', vidking:'VK' };
     const ico = icoMap[item.platform] || 'ico-nu';
     const lbl = lblMap[item.platform] || '??';
     div.innerHTML = `
@@ -819,8 +815,6 @@ function clearPlayer() {
   const stIframe = document.getElementById('st-iframe');
   if (stIframe) stIframe.remove();
   clearInterval(window._vidkingTimer);
-  const dlIframe = document.getElementById('dl-iframe');
-  if (dlIframe) dlIframe.remove();
   const vidkingIframe = document.getElementById('vidking-iframe');
   if (vidkingIframe) vidkingIframe.remove();
 
@@ -910,20 +904,6 @@ function loadPlayer(item) {
     tpf.src = `https://player.kick.com/${channel}?autoplay=true`;
     tcf.src = `https://chat.kick.cx/embed/${channel}`;
     tw.classList.add('show');
-    document.getElementById('ctrl').classList.remove('show');
-    return;
-  }
-
-  if (item.platform === 'dlstreams') {
-    currentPlatform = 'dlstreams';
-    const iframeEl = document.createElement('iframe');
-    iframeEl.id = 'dl-iframe';
-    iframeEl.src = item.url;
-    iframeEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:none;';
-    iframeEl.allow = 'autoplay; fullscreen; encrypted-media';
-    iframeEl.allowFullscreen = true;
-    iframeEl.setAttribute('loading', 'lazy');
-    document.getElementById('player-wrap').appendChild(iframeEl);
     document.getElementById('ctrl').classList.remove('show');
     return;
   }
