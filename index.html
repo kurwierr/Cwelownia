@@ -152,6 +152,10 @@
   .toast.info{border-color:var(--accent2);color:var(--accent2);}
   .toast.gone{opacity:0;transform:translateX(-50%) translateY(10px);}
 
+  /* VidKing sync button */
+  #vk-sync-btn{position:absolute;bottom:70px;right:14px;z-index:11;background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:7px 14px;color:#fff;font-family:'Space Mono',monospace;font-size:0.7rem;cursor:pointer;display:none;transition:all 0.15s;backdrop-filter:blur(4px);}
+  #vk-sync-btn:hover{border-color:var(--accent);color:var(--accent);}
+
   /* Click blocker for guests on YT iframe */
   #click-blocker{position:absolute;inset:0;z-index:8;display:none;}
   #click-blocker.show{display:block;}
@@ -253,6 +257,7 @@
         <div id="yt-player"></div>
         <div id="native-wrap"><video id="native-vid" playsinline></video></div>
         <div id="click-blocker"></div>
+        <button id="vk-sync-btn" onclick="vidkingSync()">↺ Sync z hostem</button>
         <div id="pause-overlay">
           <div class="po-icon">⏸</div>
           <div class="po-txt">PAUZA</div>
@@ -811,10 +816,14 @@ function clearPlayer() {
   document.getElementById('ph').style.display = 'flex';
   document.getElementById('pause-overlay').classList.remove('show');
   document.getElementById('click-blocker').classList.remove('show');
+  document.getElementById('vk-sync-btn').style.display = 'none';
 
   const stIframe = document.getElementById('st-iframe');
   if (stIframe) stIframe.remove();
   clearInterval(window._vidkingTimer);
+  if (window._vidkingMsgHandler) { window.removeEventListener('message', window._vidkingMsgHandler); window._vidkingMsgHandler = null; }
+  clearTimeout(window._vkPauseDetector);
+  window._vidkingLastPush = null;
   const vidkingIframe = document.getElementById('vidking-iframe');
   if (vidkingIframe) vidkingIframe.remove();
 
@@ -935,16 +944,67 @@ function loadPlayer(item) {
     document.getElementById('player-wrap').appendChild(iframeEl);
     // VidKing has its own built-in controls — hide ours for everyone
     document.getElementById('ctrl').classList.remove('show');
+    // Guests: show sync button + block clicks
+    if (!isHost) {
+      document.getElementById('click-blocker').classList.add('show');
+      document.getElementById('vk-sync-btn').style.display = 'block';
+    }
 
-    // Host: track time manually via interval and push to Firebase
+    // Host: listen to postMessage events from VidKing player
     if (isHost) {
-      let vidkingTime = 0;
       clearInterval(window._vidkingTimer);
-      window._vidkingTimer = setInterval(() => {
-        if (currentPlatform !== 'vidking') { clearInterval(window._vidkingTimer); return; }
-        vidkingTime++;
-        pushState(true, vidkingTime);
-      }, 1000);
+      // Remove old listener if exists
+      if (window._vidkingMsgHandler) window.removeEventListener('message', window._vidkingMsgHandler);
+
+      let _vkLastTime = null;
+      let _vkPlaying = false;
+      let _vkPauseDetector = null;
+
+      window._vidkingMsgHandler = function(event) {
+        if (currentPlatform !== 'vidking') return;
+        try {
+          const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (!msg || msg.type !== 'PLAYER_EVENT') return;
+          const d = msg.data;
+          if (!d || d.event !== 'timeupdate') return;
+
+          const t = d.currentTime || 0;
+          const now = Date.now();
+
+          // Detect seek — time jumped more than 3s
+          const seeked = _vkLastTime !== null && Math.abs(t - _vkLastTime) > 3;
+
+          // Detect resume from pause — was paused, now getting timeupdate again
+          const resumed = !_vkPlaying;
+
+          _vkLastTime = t;
+          _vkPlaying = true;
+
+          // Reset pause detector — if no timeupdate for 1.5s, assume paused
+          clearTimeout(_vkPauseDetector);
+          _vkPauseDetector = setTimeout(() => {
+            if (currentPlatform !== 'vidking') return;
+            _vkPlaying = false;
+            pushState(false, _vkLastTime || 0);
+            flashSync();
+          }, 1500);
+
+          // Push immediately on seek or resume
+          if (seeked || resumed) {
+            pushState(true, t);
+            flashSync();
+            window._vidkingLastPush = now;
+            return;
+          }
+
+          // Otherwise push every 3s
+          if (!window._vidkingLastPush || now - window._vidkingLastPush > 3000) {
+            window._vidkingLastPush = now;
+            pushState(true, t);
+          }
+        } catch(e) {}
+      };
+      window.addEventListener('message', window._vidkingMsgHandler);
     }
     return;
   }
@@ -1156,6 +1216,35 @@ function removeWatchedItem() {
   np.splice(0, currentIndex); // remove everything before current
   update(ref(db, 'room'), { playlist: np, currentIndex: 0 }).catch(()=>{});
 }
+
+// ── VIDKING SYNC ──
+window.vidkingSync = function() {
+  if (isHost || currentPlatform !== 'vidking') return;
+  const item = playlist[currentIndex];
+  if (!item) return;
+  const state = lastSyncedState;
+  if (!state) { toast('Brak danych sync — poczekaj chwilę', 'err'); return; }
+  const lag = (Date.now() - (state.updatedAt || Date.now())) / 1000;
+  const startTime = Math.max(0, Math.floor((state.time || 0) + (state.playing ? lag : 0)));
+  let embedUrl = item.url;
+  try {
+    const u = new URL(item.url);
+    u.searchParams.set('autoPlay', 'true');
+    if (startTime > 0) u.searchParams.set('t', startTime);
+    embedUrl = u.toString();
+  } catch(e) {}
+  const old = document.getElementById('vidking-iframe');
+  if (old) old.remove();
+  const iframeEl = document.createElement('iframe');
+  iframeEl.id = 'vidking-iframe';
+  iframeEl.src = embedUrl;
+  iframeEl.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:none;';
+  iframeEl.allow = 'autoplay; fullscreen; encrypted-media';
+  iframeEl.allowFullscreen = true;
+  document.getElementById('player-wrap').appendChild(iframeEl);
+  flashSync();
+  toast('Synchronizuję...', 'info');
+};
 
 // ── CLEAR CHAT ──
 window.clearChat = async function() {
